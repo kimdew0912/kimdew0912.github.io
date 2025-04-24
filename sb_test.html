@@ -3,19 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <title>Scrapbook Bridge Test</title>
+  <style>
+    body { font-family: sans-serif; padding: 1em; }
+    button { margin-bottom: 0.5em; }
+    pre { background: #f0f0f0; padding: 1em; border-radius: 6px; }
+  </style>
   <script>
+    function log(msg) {
+      const el = document.getElementById('log');
+      el.innerText += msg + "\n";
+    }
+
     window.whale = window.whale || {};
     whale.nativeCallback = {
       setCurrentPageInfo: function(url, title, faviconUrl) {
-        console.log("[Callback] setCurrentPageInfo:", url, title, faviconUrl);
-        document.getElementById('info').innerText = `URL: ${url}\nTitle: ${title}\nFavicon: ${faviconUrl}`;
+        log("[Callback] setCurrentPageInfo");
+        log("  URL: " + url);
+        log("  Title: " + title);
+        log("  Favicon: " + faviconUrl);
+        document.getElementById('info').innerText = title;
       },
       goToEditView: function(contentId) {
-        console.log("[Callback] goToEditView:", contentId);
+        log("[Callback] goToEditView: " + contentId);
         alert("Edit View for contentId: " + contentId);
       },
       cancelContentDelete: function() {
-        console.log("[Callback] cancelContentDelete");
+        log("[Callback] cancelContentDelete()");
         alert("Delete Cancelled");
       }
     };
@@ -23,22 +36,30 @@
     function callSelectItem() {
       const data = { id: "abc123", name: "테스트 항목" };
       scrapbook.selectItem(JSON.stringify(data));
+      log("[Action] selectItem() called");
     }
 
     function callGetCurrentPageInfo() {
       scrapbook.getCurrentPageInfo();
+      log("[Action] getCurrentPageInfo() called");
     }
 
     function callShowNotifyMessage() {
       scrapbook.showNotifyMessage(JSON.stringify({ message: "안녕, Native!" }));
+      log("[Action] showNotifyMessage() called");
     }
   </script>
 </head>
 <body>
   <h1>Scrapbook Web ↔ Android Test</h1>
-  <button onclick="callSelectItem()">📩 Web → Android: selectItem()</button><br><br>
-  <button onclick="callGetCurrentPageInfo()">🔄 Web → Android → Web: getCurrentPageInfo()</button><br><br>
+  <button onclick="callSelectItem()">📩 Web → Android: selectItem()</button><br>
+  <button onclick="callGetCurrentPageInfo()">🔄 Web → Android → Web: getCurrentPageInfo()</button><br>
   <button onclick="callShowNotifyMessage()">🔔 Web → Android: showNotifyMessage()</button><br><br>
-  <pre id="info">(페이지 정보 출력 영역)</pre>
+
+  <h3>📘 현재 페이지 타이틀:</h3>
+  <pre id="info">(없음)</pre>
+
+  <h3>📜 로그</h3>
+  <pre id="log">(아직 없음)</pre>
 </body>
 </html>
