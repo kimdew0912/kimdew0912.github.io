@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Scrapbook Bridge Test</title>
+  <script>
+    window.whale = window.whale || {};
+    whale.nativeCallback = {
+      setCurrentPageInfo: function(url, title, faviconUrl) {
+        console.log("[Callback] setCurrentPageInfo:", url, title, faviconUrl);
+        document.getElementById('info').innerText = `URL: ${url}\nTitle: ${title}\nFavicon: ${faviconUrl}`;
+      },
+      goToEditView: function(contentId) {
+        console.log("[Callback] goToEditView:", contentId);
+        alert("Edit View for contentId: " + contentId);
+      },
+      cancelContentDelete: function() {
+        console.log("[Callback] cancelContentDelete");
+        alert("Delete Cancelled");
+      }
+    };
+
+    function callSelectItem() {
+      const data = { id: "abc123", name: "테스트 항목" };
+      scrapbook.selectItem(JSON.stringify(data));
+    }
+
+    function callGetCurrentPageInfo() {
+      scrapbook.getCurrentPageInfo();
+    }
+
+    function callShowNotifyMessage() {
+      scrapbook.showNotifyMessage(JSON.stringify({ message: "안녕, Native!" }));
+    }
+  </script>
+</head>
+<body>
+  <h1>Scrapbook Web ↔ Android Test</h1>
+  <button onclick="callSelectItem()">📩 Web → Android: selectItem()</button><br><br>
+  <button onclick="callGetCurrentPageInfo()">🔄 Web → Android → Web: getCurrentPageInfo()</button><br><br>
+  <button onclick="callShowNotifyMessage()">🔔 Web → Android: showNotifyMessage()</button><br><br>
+  <pre id="info">(페이지 정보 출력 영역)</pre>
+</body>
+</html>
