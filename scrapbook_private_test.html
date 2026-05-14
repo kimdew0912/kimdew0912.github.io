@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>whale.scrapbookPrivate test</title>
+<style>
+  body { font-family: -apple-system, sans-serif; padding: 16px; }
+  button { padding: 12px 16px; font-size: 16px; }
+  pre { background: #f4f4f4; padding: 12px; border-radius: 6px; white-space: pre-wrap; }
+  .ok { color: #0a7d2b; }
+  .ng { color: #c62828; }
+</style>
+</head>
+<body>
+<h1>whale.scrapbookPrivate test</h1>
+<p>이 페이지의 host 가 Android 측 ALLOWED_HOSTS 에 포함되어야 wrap script 가 inject 됩니다.</p>
+
+<button id="open">openScrapbook()</button>
+<h3>상태</h3>
+<pre id="state"></pre>
+<h3>로그</h3>
+<pre id="log"></pre>
+
+<script>
+  const $state = document.getElementById('state');
+  const $log = document.getElementById('log');
+
+  function log(msg, cls) {
+    const line = document.createElement('div');
+    if (cls) line.className = cls;
+    line.textContent = new Date().toISOString().substr(11, 8) + ' ' + msg;
+    $log.appendChild(line);
+  }
+
+  function refreshState() {
+    const hasWhale = typeof window.whale === 'object' && window.whale !== null;
+    const hasSp = hasWhale && typeof window.whale.scrapbookPrivate === 'object'
+                  && window.whale.scrapbookPrivate !== null;
+    const hasFn = hasSp && typeof window.whale.scrapbookPrivate.openScrapbook === 'function';
+    $state.textContent =
+      'window.whale          = ' + (hasWhale ? 'ok' : '✗') + '\n' +
+      'whale.scrapbookPrivate = ' + (hasSp ? 'ok' : '✗') + '\n' +
+      'openScrapbook()        = ' + (hasFn ? 'ok' : '✗');
+  }
+
+  document.getElementById('open').addEventListener('click', () => {
+    try {
+      window.whale.scrapbookPrivate.openScrapbook();
+      log('openScrapbook() 호출 성공', 'ok');
+    } catch (e) {
+      log('openScrapbook() 호출 실패: ' + e.message, 'ng');
+    }
+  });
+
+  refreshState();
+  // page load 후 wrap script 가 evaluateJavaScript 로 들어오므로 약간 늦게 한 번 더 확인
+  setTimeout(refreshState, 500);
+  setTimeout(refreshState, 1500);
+</script>
+</body>
+</html>
