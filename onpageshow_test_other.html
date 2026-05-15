@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>onpageshow 테스트 (B 페이지)</title>
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, "Helvetica Neue", "Apple SD Gothic Neo", sans-serif; }
+  body { padding: 16px; line-height: 1.5; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  .meta { font-size: 12px; color: #666; margin-bottom: 12px; word-break: break-all; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  a.btn, button { display: inline-block; padding: 10px 14px; border-radius: 8px; background: #03c75a; color: #fff; text-decoration: none; border: 0; font-size: 14px; }
+  button.secondary { background: #555; }
+  #log { white-space: pre-wrap; word-break: break-all; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+         background: #111; color: #0f0; padding: 12px; border-radius: 8px; min-height: 200px; }
+  .hint { font-size: 13px; background: #fffbcc; color: #333; padding: 10px; border-radius: 8px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+  <h1>onpageshow 테스트 — B 페이지</h1>
+  <div class="hint">
+    이 페이지에서 단말의 <b>뒤로가기</b>를 눌러 A 페이지로 돌아간 뒤,<br>
+    A 페이지 로그에 <code>[pageshow] persisted=...</code> 라인이 새로 찍히는지 확인하세요.
+  </div>
+  <div class="meta" id="meta"></div>
+  <div class="row">
+    <a class="btn" href="onpageshow_test.html">A 페이지로 직접 이동(테스트 무효)</a>
+    <button class="secondary" id="goExternal">외부 사이트로 이동</button>
+  </div>
+  <div id="log"></div>
+
+<script>
+(function () {
+  var t0 = performance.now();
+  var logEl = document.getElementById('log');
+  document.getElementById('meta').textContent = 'URL: ' + location.href;
+  function ts() { return ('00000' + Math.round(performance.now() - t0)).slice(-5); }
+  function log(msg) {
+    var line = document.createElement('div');
+    line.textContent = '[' + ts() + 'ms] ' + msg;
+    logEl.insertBefore(line, logEl.firstChild);
+  }
+  document.addEventListener('DOMContentLoaded', function () { log('[DOMContentLoaded]'); });
+  window.addEventListener('load',     function () { log('[load]'); });
+  window.addEventListener('pageshow', function (e) { log('[pageshow] persisted=' + e.persisted); });
+  window.addEventListener('pagehide', function (e) { log('[pagehide] persisted=' + e.persisted); });
+  document.addEventListener('visibilitychange', function () { log('[visibilitychange] ' + document.visibilityState); });
+  document.getElementById('goExternal').addEventListener('click', function () {
+    location.href = 'https://www.naver.com/';
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>onpageshow 테스트 (A 페이지)</title>
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, "Helvetica Neue", "Apple SD Gothic Neo", sans-serif; }
+  body { padding: 16px; line-height: 1.5; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  .meta { font-size: 12px; color: #666; margin-bottom: 12px; word-break: break-all; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  a.btn, button { display: inline-block; padding: 10px 14px; border-radius: 8px; background: #03c75a; color: #fff; text-decoration: none; border: 0; font-size: 14px; }
+  button.secondary { background: #555; }
+  button.danger { background: #d33; }
+  label.toggle { font-size: 13px; display: inline-flex; align-items: center; gap: 6px; background: #eee; padding: 8px 12px; border-radius: 8px; color: #222; }
+  #log { white-space: pre-wrap; word-break: break-all; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+         background: #111; color: #0f0; padding: 12px; border-radius: 8px; min-height: 280px; }
+  .legend { font-size: 12px; color: #555; margin-top: 8px; }
+  .ok { color: #0f0; } .warn { color: #ff0; } .err { color: #f55; } .info { color: #6cf; }
+</style>
+</head>
+<body>
+  <h1>onpageshow 테스트 — A 페이지</h1>
+  <div class="meta" id="meta"></div>
+
+  <div class="row">
+    <a class="btn" id="goB" href="onpageshow_test_other.html">B 페이지로 이동 →</a>
+    <button class="secondary" id="goExternal">외부 사이트로 이동</button>
+    <button class="secondary" id="reload">새로고침</button>
+    <button class="danger" id="clear">로그 지우기</button>
+  </div>
+
+  <div class="row">
+    <label class="toggle"><input type="checkbox" id="useAlert"> pageshow 시 alert() 호출</label>
+    <label class="toggle"><input type="checkbox" id="blockBfcache"> BFCache 자격 박탈 (unload 등록)</label>
+    <label class="toggle"><input type="checkbox" id="noStore"> Cache-Control: no-store 메타 (재로딩시 의미X — 서버 헤더 권장)</label>
+  </div>
+
+  <div id="log"></div>
+  <div class="legend">
+    초록=정상 / 노랑=주의 / 빨강=오류. 각 줄 앞 숫자는 페이지 로드 후 경과 ms.<br>
+    핵심: 뒤로가기로 돌아왔을 때 <b>[pageshow]</b> 라인이 새로 찍히는지, 그리고 <code>persisted=true/false</code> 값.
+  </div>
+
+<script>
+(function () {
+  var t0 = performance.now();
+  var logEl = document.getElementById('log');
+  var metaEl = document.getElementById('meta');
+
+  function ts() { return ('00000' + Math.round(performance.now() - t0)).slice(-5); }
+  function log(msg, cls) {
+    var line = document.createElement('div');
+    line.className = cls || 'ok';
+    line.textContent = '[' + ts() + 'ms] ' + msg;
+    logEl.insertBefore(line, logEl.firstChild);
+    try { console.log('[onpageshow-test]', msg); } catch (e) {}
+  }
+
+  // 환경 정보 표시
+  metaEl.textContent =
+    'UA: ' + navigator.userAgent +
+    '\nURL: ' + location.href +
+    '\nnav type: ' + (function () {
+      try {
+        var e = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+        return e ? e.type : (performance.navigation ? performance.navigation.type : 'n/a');
+      } catch (e) { return 'n/a'; }
+    })();
+
+  // 옵션 영속화
+  ['useAlert', 'blockBfcache', 'noStore'].forEach(function (id) {
+    var el = document.getElementById(id);
+    var saved = sessionStorage.getItem('opt_' + id);
+    if (saved === '1') el.checked = true;
+    el.addEventListener('change', function () {
+      sessionStorage.setItem('opt_' + id, el.checked ? '1' : '0');
+      if (id === 'blockBfcache') applyUnload();
+      log('option ' + id + ' = ' + el.checked, 'info');
+    });
+  });
+
+  // BFCache 박탈용 unload 토글
+  function unloadHandler() { /* presence alone disables BFCache on many builds */ }
+  function applyUnload() {
+    if (document.getElementById('blockBfcache').checked) {
+      window.addEventListener('unload', unloadHandler);
+      log('unload 핸들러 등록됨 (BFCache 비대상 유도)', 'warn');
+    } else {
+      window.removeEventListener('unload', unloadHandler);
+    }
+  }
+  applyUnload();
+
+  // 이벤트들 모두 캡처
+  document.addEventListener('DOMContentLoaded', function () {
+    log('[DOMContentLoaded] readyState=' + document.readyState, 'info');
+  });
+  window.addEventListener('load', function () {
+    log('[window.load]', 'info');
+  });
+  window.addEventListener('pagehide', function (e) {
+    log('[pagehide] persisted=' + e.persisted, 'warn');
+  });
+  window.addEventListener('pageshow', function (e) {
+    log('[pageshow] persisted=' + e.persisted + '  (← 이 줄이 뒤로가기 후 찍히면 정상)', 'ok');
+    if (document.getElementById('useAlert').checked) {
+      // 사용자가 신고한 시나리오 그대로 재현
+      try { alert('진입 (pageshow persisted=' + e.persisted + ')'); }
+      catch (err) { log('alert() 예외: ' + err, 'err'); }
+    }
+  });
+  document.addEventListener('visibilitychange', function () {
+    log('[visibilitychange] ' + document.visibilityState, 'info');
+  });
+  window.addEventListener('focus', function () { log('[focus]', 'info'); });
+  window.addEventListener('blur',  function () { log('[blur]',  'info'); });
+
+  // 외부 사이트 이동 버튼
+  document.getElementById('goExternal').addEventListener('click', function () {
+    location.href = 'https://www.naver.com/';
+  });
+  document.getElementById('reload').addEventListener('click', function () {
+    location.reload();
+  });
+  document.getElementById('clear').addEventListener('click', function () {
+    logEl.innerHTML = '';
+  });
+
+  // 신고 본문 그대로의 코드도 동일하게 등록되어 있음을 명시
+  // window.onpageshow = function (event) { alert('진입') }   // <-- 신고 코드
+  // → 위 addEventListener 와 별개로 onpageshow 직접 할당도 테스트
+  window.onpageshow = function (event) {
+    log('[window.onpageshow 속성핸들러] persisted=' + (event && event.persisted), 'ok');
+  };
+
+  log('스크립트 초기화 완료', 'info');
+})();
+</script>
+</body>
+</html>
