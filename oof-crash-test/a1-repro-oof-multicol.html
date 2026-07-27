@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<!-- Whale Android 3.9.14.9 (Chrome138) A1 크래시 재현 -->
+<!-- blink::PrePaintTreeWalk::RebuildContextForMissedDescendant / SEGV 0x28 -->
+<!-- upstream fix: chromium f169e4e (2026-01-07), bug 471136527 -->
+<title>A1 repro: oof-in-spanner-in-nested-multicol</title>
+<div style="position:relative; columns:3;">
+  <div style="columns:2;">
+    <div style="position:relative;">
+      <div style="column-span:all;">
+        <div style="position:absolute;"></div>
+      </div>
+    </div>
+  </div>
+</div>

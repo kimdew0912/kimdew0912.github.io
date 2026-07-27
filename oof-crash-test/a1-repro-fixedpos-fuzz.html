@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A1 repro fuzz — missed OOF descendant</title>
+<!--
+  Whale Android 3.9.14.x (Chrome 138) A1 크래시 재현 시도
+  target: blink::PrePaintTreeWalk::RebuildContextForMissedDescendant  (SIGSEGV 0x28)
+
+  근거 (M138 pre_paint_tree_walk.cc):
+   - L613  RebuildContextForMissedDescendant(ancestor, *object.Parent(), ...)   <- null 가드 없음
+           OOF의 LayoutObject 조상 체인이 ancestor.OwnerLayoutBox()에 도달 못하면 null deref
+   - L589  CollectMissableChildren: OOF가 fragmentation context 밖이어도
+           IsFixedPositioned() 이면 pending_missables_ 에 등록  -> multicol 불필요
+   - L1255 주석: "fragment 상으로는 직계 자식인데 CSS box tree 상으로는 더 깊은 노드"
+           => fragment tree 와 box tree 의 괴리가 트리거
+
+  전략: 괴리를 만드는 재료를 조합 폭격
+   (a) content-visibility 로 서브트리 스킵(display lock) -> OOF 가 missed 상태
+   (b) 조상의 transform/filter/perspective 를 런타임 토글 -> fixedpos containing block 변경
+   (c) abspos/fixedpos 중첩 + relpos 래퍼 + overflow 스크롤러
+   (d) multicol 변형(대조군, f169e4e 경로)
+  마지막 실행 variant 는 localStorage 에 기록 -> 렌더러 크래시(sad tab) 후에도 확인 가능
+-->
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font:12px/1.4 -apple-system,system-ui,sans-serif; background:#111; color:#eee; }
+  #hud {
+    position: fixed; top:0; left:0; right:0; z-index:99;
+    background:#000d; padding:6px 8px; border-bottom:1px solid #333;
+    font-variant-numeric: tabular-nums;
+  }
+  #hud b { color:#7fd3ff; }
+  #stage { padding:52px 8px 400px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .card { background:#1b1b1b; border:1px solid #2c2c2c; min-height:120px; padding:6px; position:relative; }
+  .lock { content-visibility:auto; contain-intrinsic-size:160px; }
+  .scroller { overflow:auto; max-height:110px; }
+  .clip { overflow:hidden; }
+  .oof-abs { position:absolute; top:4px; right:4px; width:24px; height:24px; background:#3a6; }
+  .oof-fix { position:fixed; top:60px; left:8px; width:18px; height:18px; background:#a63; }
+  .mc { columns:2; column-fill:auto; height:90px; }
+  .span { column-span:all; }
+  .filler { height:40px; background:#222; margin:3px 0; }
+</style>
+</head>
+<body>
+<div id="hud">
+  A1 fuzz — variant <b id="v">-</b>/<b id="vt">-</b> · cycle <b id="c">0</b> · frames <b id="f">0</b><br>
+  <span id="desc">init…</span>
+</div>
+<div id="stage"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- variant space -------------------------------------------------
+  // 조상 컨테이닝블록 성격을 바꾸는 축
+  const OUTER = [
+    ['none',        ''                                   ],
+    ['transform',   'transform:translateZ(0)'            ],
+    ['filter',      'filter:blur(0px)'                   ],
+    ['willchange',  'will-change:transform'              ],
+    ['perspective', 'perspective:500px'                  ],
+    ['containpaint','contain:paint'                      ],
+    ['backdrop',    'backdrop-filter:blur(1px)'          ],
+  ];
+  // 중간 래퍼 position
+  const MID = ['static', 'relative', 'absolute', 'sticky'];
+  // 안쪽 OOF 종류
+  const INNER = ['abs', 'fix', 'both'];
+  // 서브트리 스킵 / 스크롤러 / multicol 대조군
+  const LOCK = [true, false];
+  const SCROLL = [true, false];
+  const MULTICOL = [false, true];
+
+  const VARIANTS = [];
+  for (const o of OUTER)
+    for (const m of MID)
+      for (const i of INNER)
+        for (const l of LOCK)
+          for (const s of SCROLL)
+            for (const mc of MULTICOL)
+              VARIANTS.push({ o, m, i, l, s, mc });
+
+  const stage = document.getElementById('stage');
+  const elV = document.getElementById('v'), elVT = document.getElementById('vt');
+  const elC = document.getElementById('c'), elF = document.getElementById('f');
+  const elD = document.getElementById('desc');
+  elVT.textContent = VARIANTS.length;
+
+  function label(vr) {
+    return vr.o[0] + ' / mid:' + vr.m + ' / oof:' + vr.i +
+           (vr.l ? ' / lock' : '') + (vr.s ? ' / scroll' : '') + (vr.mc ? ' / MULTICOL' : '');
+  }
+
+  // ---- build one variant ---------------------------------------------
+  const CARDS = 14;
+  function build(vr) {
+    stage.textContent = '';
+    const frag = document.createDocumentFragment();
+
+    for (let n = 0; n < CARDS; n++) {
+      const card = document.createElement('div');
+      card.className = 'card' + (vr.l && (n % 2 === 0) ? ' lock' : '');
+
+      // outer: containing-block 성격을 좌우하는 조상
+      const outer = document.createElement('div');
+      outer.setAttribute('style', vr.o[1]);
+      outer.dataset.outer = '1';
+
+      // 중간 래퍼(들) — box tree 를 깊게 만들어 fragment 와 어긋날 여지를 키움
+      const mid = document.createElement('div');
+      mid.style.position = vr.m;
+      if (vr.m === 'absolute') { mid.style.top = '8px'; mid.style.left = '8px'; mid.style.right = '8px'; }
+      if (vr.m === 'sticky') { mid.style.top = '52px'; }
+
+      let host = mid;
+      if (vr.s) {
+        const sc = document.createElement('div');
+        sc.className = 'scroller';
+        mid.appendChild(sc);
+        host = sc;
+      }
+      if (vr.mc) {
+        const mcbox = document.createElement('div');
+        mcbox.className = 'mc';
+        const spanner = document.createElement('div');
+        spanner.className = 'span';
+        mcbox.appendChild(spanner);
+        host.appendChild(mcbox);
+        host = spanner;               // 스패너 안에 OOF (f169e4e 경로 대조군)
+      }
+
+      // 깊은 중첩 + relpos 래퍼
+      const deep = document.createElement('div');
+      deep.style.position = 'relative';
+      const deeper = document.createElement('div');
+      deeper.className = 'clip';
+      deep.appendChild(deeper);
+
+      if (vr.i === 'abs' || vr.i === 'both') {
+        const a = document.createElement('div');
+        a.className = 'oof-abs';
+        deeper.appendChild(a);
+      }
+      if (vr.i === 'fix' || vr.i === 'both') {
+        const fx = document.createElement('div');
+        fx.className = 'oof-fix';
+        fx.style.top = (60 + (n % 8) * 20) + 'px';
+        // fixedpos 안에 또 abspos (missed 중첩)
+        const inner = document.createElement('div');
+        inner.style.cssText = 'position:absolute;top:2px;left:2px;width:6px;height:6px;background:#fff';
+        fx.appendChild(inner);
+        deeper.appendChild(fx);
+      }
+
+      host.appendChild(deep);
+      const fill = document.createElement('div');
+      fill.className = 'filler';
+      host.appendChild(fill);
+
+      outer.appendChild(mid);
+      card.appendChild(outer);
+      frag.appendChild(card);
+    }
+    stage.appendChild(frag);
+  }
+
+  // ---- mutation loop ---------------------------------------------------
+  let vi = 0, frames = 0, cycles = 0, toggle = false;
+  const CYCLE_MS = 380;
+
+  function applyVariant() {
+    const vr = VARIANTS[vi];
+    // 크래시 후에도 확인 가능하도록 기록
+    try {
+      localStorage.setItem('a1_last_variant', JSON.stringify({ i: vi, label: label(vr), t: Date.now() }));
+    } catch (e) {}
+    elV.textContent = vi;
+    elD.textContent = label(vr);
+    build(vr);
+  }
+
+  function mutate() {
+    frames++;
+    if (frames % 3 === 0) elF.textContent = frames;
+    const vr = VARIANTS[vi];
+    toggle = !toggle;
+
+    // (b) 조상 transform/filter 토글 -> fixedpos containing block 변경 강제
+    const outers = stage.querySelectorAll('[data-outer]');
+    for (let k = 0; k < outers.length; k++) {
+      if ((k & 1) === (toggle ? 0 : 1)) {
+        outers[k].setAttribute('style', toggle ? vr.o[1] : '');
+      }
+    }
+    // (a) display lock 상태 흔들기
+    if (vr.l) {
+      const cards = stage.querySelectorAll('.card');
+      for (let k = 0; k < cards.length; k += 3) {
+        cards[k].classList.toggle('lock');
+      }
+    }
+    // OOF 노드 추가/제거 — 트리 변형 중 pre-paint 강제
+    const deeps = stage.querySelectorAll('.clip');
+    if (deeps.length) {
+      const d = deeps[frames % deeps.length];
+      if (toggle) {
+        const x = document.createElement('div');
+        x.className = frames % 2 ? 'oof-fix' : 'oof-abs';
+        x.style.top = (40 + (frames % 300)) + 'px';
+        d.appendChild(x);
+      } else {
+        const last = d.lastElementChild;
+        if (last && (last.className === 'oof-fix' || last.className === 'oof-abs')) last.remove();
+      }
+    }
+    // 스크롤 -> content-visibility lock/unlock 사이클 유발
+    if (frames % 2 === 0) {
+      window.scrollBy(0, (frames % 40) - 18);
+    }
+    requestAnimationFrame(mutate);
+  }
+
+  // ---- mode 선택 ------------------------------------------------------
+  // 기본(mutate): 한 문서를 계속 변이 (steady-state)
+  // ?mode=load  : variant 당 "최초 로드 + 최초 pre-paint" 를 재현.
+  //               실제 크래시가 renderer uptime ~1초(=초기 로드 중)에 발생하므로 이 쪽이 조건에 가깝다.
+  //               DOM 을 크게 만들고, 첫 페인트 직후 다음 variant 로 location.replace 재로드.
+  const params = new URLSearchParams(location.search);
+  const MODE = params.get('mode') || 'mutate';
+  const HEAVY = parseInt(params.get('cards') || '0', 10);
+
+  if (MODE === 'load') {
+    const startIdx = parseInt(location.hash.slice(1) || '0', 10) % VARIANTS.length;
+    vi = startIdx;
+    if (HEAVY > 0) { /* 카드 수 상향은 build() 내 CARDS 상수 대신 반복 삽입으로 처리 */ }
+    applyVariant();
+    // 무거운 첫 페인트를 만들기 위해 추가 카드 주입
+    const extra = HEAVY > 0 ? HEAVY : 60;
+    const vr = VARIANTS[vi];
+    for (let r = 0; r < extra; r++) {
+      const clone = stage.firstElementChild && stage.firstElementChild.cloneNode(true);
+      if (clone) stage.appendChild(clone);
+    }
+    // 첫 페인트 이후 곧바로 다음 variant 로 재로드 (초기 로드 경로 반복 폭격)
+    setTimeout(function () {
+      const next = (vi + 1) % VARIANTS.length;
+      location.replace(location.pathname + location.search + '#' + next);
+      location.reload();
+    }, 900);
+  } else {
+    applyVariant();
+    requestAnimationFrame(mutate);
+    setInterval(function () {
+      vi = (vi + 1) % VARIANTS.length;
+      if (vi === 0) { cycles++; elC.textContent = cycles; }
+      applyVariant();
+    }, CYCLE_MS);
+  }
+
+  // 이전 실행에서 크래시했다면 마지막 variant 표시
+  try {
+    const prev = localStorage.getItem('a1_last_variant');
+    if (prev) console.log('[a1-fuzz] previous last variant =', prev);
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>
