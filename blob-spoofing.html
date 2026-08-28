@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Blob HTML Example</title>
+</head>
+<body>
+<button id="open">Blob<\ ô0</button>
+
+<script>
+    document.getElementById("open").addEventListener("click", async () => {
+      const targetUrl = "https://kcal.pw/blob.html";
+
+      try {
+        const response = await fetch(targetUrl);
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        let html = await response.text();
+
+               html = html.replace(
+          /<head([^>]*)>/i,
+          `<head$1>
+            <base href="https://kcal.pw/">
+          `
+        );
+
+               const blob = new Blob([html], {
+          type: "text/html;charset=utf-8"
+        });
+
+        const blobUrl = URL.createObjectURL(blob);
+
+        window.open(blobUrl, "_blank");
+
+      } catch (error) {
+        console.error(error);
+        alert(error.message);
+      }
+    });
+</script>
+</body>
+</html>
